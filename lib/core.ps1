@@ -1377,6 +1377,11 @@ $scoopdir = $env:SCOOP, (get_config ROOT_PATH), "$PSScriptRoot\..\..\..\..", "$(
 # Scoop global apps directory
 $globaldir = $env:SCOOP_GLOBAL, (get_config GLOBAL_PATH), "$([System.Environment]::GetFolderPath('CommonApplicationData'))\scoop" | Where-Object { $_ } | Select-Object -First 1 | Get-AbsolutePath
 
+# Scoop portable apps directory (PortableApps.com layout), only used by 'scoop install --portable'
+# Note: SCOOP_PORTABLE takes precedence over the 'portable_path' config. Empty ($null) when not configured.
+$portabledir = $env:SCOOP_PORTABLE, (get_config PORTABLE_PATH) | Where-Object { $_ } | Select-Object -First 1
+if ($portabledir) { $portabledir = Get-AbsolutePath $portabledir }
+
 # Scoop cache directory
 # Note: Setting the SCOOP_CACHE environment variable to use a shared directory
 #       is experimental and untested. There may be concurrency issues when

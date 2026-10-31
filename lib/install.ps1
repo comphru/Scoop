@@ -5,7 +5,10 @@ function nightly_version($quiet = $false) {
     return "nightly-$(Get-Date -Format 'yyyyMMdd')"
 }
 
-function install_app($app, $architecture, $global, $suggested, $use_cache = $true, $check_hash = $true) {
+function install_app($app, $architecture, $global, $suggested, $use_cache = $true, $check_hash = $true, $portable = $false) {
+    # TEMPORARY (step 2): portable branch not implemented yet; never fall back to a normal install
+    if ($portable) { abort "Portable installation is not implemented yet." }
+
     $app, $manifest, $bucket, $url = Get-Manifest $app
 
     if (!$manifest) {
