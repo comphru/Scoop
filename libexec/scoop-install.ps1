@@ -25,6 +25,7 @@
 #   -k, --no-cache                  Don't use the download cache
 #   -s, --skip-hash-check           Skip hash validation (use with caution!)
 #   -u, --no-update-scoop           Don't update Scoop before installing if it's outdated
+#   -p, --portable                  Install the app into the portable directory (PortableApps layout)
 #   -a, --arch <32bit|64bit|arm64>  Use the specified architecture, if the app supports it
 
 . "$PSScriptRoot\..\lib\getopt.ps1"
@@ -38,20 +39,20 @@
 . "$PSScriptRoot\..\lib\shortcuts.ps1"
 . "$PSScriptRoot\..\lib\psmodules.ps1"
 . "$PSScriptRoot\..\lib\versions.ps1"
+. "$PSScriptRoot\..\lib\portable.ps1"
 . "$PSScriptRoot\..\lib\depends.ps1"
 if (get_config USE_SQLITE_CACHE) {
     . "$PSScriptRoot\..\lib\database.ps1"
 }
 
 $opt, $apps, $err = getopt $args 'gikspua:' 'global', 'independent', 'no-cache', 'skip-hash-check', 'no-update-scoop', 'portable', 'arch='
+if ($err) { error "scoop install: $err"; exit 1 }
+
 $global = $opt.g -or $opt.global
-$portable = $opt.p -or $opt.portable
-if ($portable -and !$portabledir) {
-    abort "ERROR: Portable installation directory is not configured. Set it with 'scoop config PORTABLE_PATH <path>' or the SCOOP_PORTABLE environment variable."
-}
 $check_hash = !($opt.s -or $opt.'skip-hash-check')
 $independent = $opt.i -or $opt.independent
 $use_cache = !($opt.k -or $opt.'no-cache')
+$portable = [bool]($opt.p -or $opt.portable)
 $architecture = Get-DefaultArchitecture
 try {
     $architecture = Format-ArchitectureString ($opt.a + $opt.arch)
@@ -60,6 +61,11 @@ try {
 }
 
 if (!$apps) { error '<app> missing'; my_usage; exit 1 }
+
+if ($portable) {
+    if ($global) { abort 'ERROR: --portable cannot be combined with --global' }
+    Assert-PortableDir
+}
 
 if ($global -and !(is_admin)) {
     abort 'ERROR: you need admin rights to install global apps'
@@ -75,7 +81,8 @@ if (is_scoop_outdated) {
 
 ensure_none_failed $apps
 
-if ($apps.length -eq 1) {
+# portable installs are checked in install_app, once the installed identity (<app>_v<version>) is known
+if (!$portable -and $apps.length -eq 1) {
     $app, $null, $version = parse_app $apps
     if ($app.EndsWith('.json')) {
         $app = [System.IO.Path]::GetFileNameWithoutExtension($app)
@@ -104,7 +111,7 @@ $resolved = @()
 $specific_versions_paths = $specific_versions | ForEach-Object {
     $spec = $_
     $app, $bucket, $version = parse_app $spec
-    if (installed_manifest $app $version) {
+    if (!$portable -and (installed_manifest $app $version)) {
         warn "'$app' ($version) is already installed.`nUse 'scoop update $app$(if ($global) { ' --global' })' to install a new version."
         $resolved += $spec
         continue
@@ -127,13 +134,23 @@ $apps = @((@($specific_versions_paths) + $difference) | Where-Object { $_ } | Se
 # remember which were explicitly requested so that we can
 # differentiate after dependencies are added
 $explicit_apps = $apps
+if ($portable) {
+    # Get-Dependency returns 'bucket/app', so compare plain app names
+    $explicit_names = @($explicit_apps | ForEach-Object { Get-AppBaseName $_ })
+}
 
 if (!$independent) {
     $apps = $apps | Get-Dependency -Architecture $architecture | Select-Object -Unique # adds dependencies
 }
 ensure_none_failed $apps
 
-$apps, $skip = prune_installed $apps $global
+$pruned, $skip = prune_installed $apps $global
+if ($portable) {
+    # explicitly requested apps are checked in install_app; dependencies are still pruned as usual
+    $pruned = @($apps | Where-Object { ($explicit_names -contains (Get-AppBaseName $_)) -or ($pruned -contains $_) })
+    $skip = @($skip | Where-Object { $explicit_names -notcontains (Get-AppBaseName $_) })
+}
+$apps = $pruned
 
 $skip | Where-Object { $explicit_apps -contains $_ } | ForEach-Object {
     $app, $null, $null = parse_app $_
@@ -147,7 +164,8 @@ if ((Test-Aria2Enabled) -and (get_config 'aria2-warning-enabled' $true)) {
     warn "Should it cause issues, run 'scoop config aria2-enabled false' to disable it."
     warn "To disable this warning, run 'scoop config aria2-warning-enabled false'."
 }
-$apps | ForEach-Object { $apps | ForEach-Object { install_app $_ $architecture $global $suggested $use_cache $check_hash $portable } }
+# only explicitly requested apps are portable, dependencies install normally
+$apps | ForEach-Object { install_app $_ $architecture $global $suggested $use_cache $check_hash ($portable -and ($explicit_names -contains (Get-AppBaseName $_))) }
 
 show_suggestions $suggested
 
