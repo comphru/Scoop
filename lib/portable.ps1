@@ -14,6 +14,12 @@ function Assert-PortableDir {
     }
 }
 
+# Plain app name of an app spec ('bucket/app', path or URL -> 'app'), same normalisation as ensure_none_failed.
+# Needed because Get-Dependency returns 'bucket/app' while the user typed 'app'.
+function Get-AppBaseName($spec) {
+    return ($spec -split '/|\\')[-1] -replace '\.json$', ''
+}
+
 # Installed identity of a portable app: '<app>_v<version>'.
 # Manifests that already carry the version in their name (e.g. 'NotepadPlusPlus_v8.6')
 # are not suffixed a second time.

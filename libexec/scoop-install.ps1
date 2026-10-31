@@ -62,13 +62,13 @@ try {
 
 if (!$apps) { error '<app> missing'; my_usage; exit 1 }
 
-if ($global -and !(is_admin)) {
-    abort 'ERROR: you need admin rights to install global apps'
-}
-
 if ($portable) {
     if ($global) { abort 'ERROR: --portable cannot be combined with --global' }
     Assert-PortableDir
+}
+
+if ($global -and !(is_admin)) {
+    abort 'ERROR: you need admin rights to install global apps'
 }
 
 if (is_scoop_outdated) {
@@ -134,6 +134,10 @@ $apps = @((@($specific_versions_paths) + $difference) | Where-Object { $_ } | Se
 # remember which were explicitly requested so that we can
 # differentiate after dependencies are added
 $explicit_apps = $apps
+if ($portable) {
+    # Get-Dependency returns 'bucket/app', so compare plain app names
+    $explicit_names = @($explicit_apps | ForEach-Object { Get-AppBaseName $_ })
+}
 
 if (!$independent) {
     $apps = $apps | Get-Dependency -Architecture $architecture | Select-Object -Unique # adds dependencies
@@ -143,8 +147,8 @@ ensure_none_failed $apps
 $pruned, $skip = prune_installed $apps $global
 if ($portable) {
     # explicitly requested apps are checked in install_app; dependencies are still pruned as usual
-    $pruned = @($apps | Where-Object { ($explicit_apps -contains $_) -or ($pruned -contains $_) })
-    $skip = @($skip | Where-Object { $explicit_apps -notcontains $_ })
+    $pruned = @($apps | Where-Object { ($explicit_names -contains (Get-AppBaseName $_)) -or ($pruned -contains $_) })
+    $skip = @($skip | Where-Object { $explicit_names -notcontains (Get-AppBaseName $_) })
 }
 $apps = $pruned
 
@@ -161,7 +165,7 @@ if ((Test-Aria2Enabled) -and (get_config 'aria2-warning-enabled' $true)) {
     warn "To disable this warning, run 'scoop config aria2-warning-enabled false'."
 }
 # only explicitly requested apps are portable, dependencies install normally
-$apps | ForEach-Object { install_app $_ $architecture $global $suggested $use_cache $check_hash ($portable -and ($explicit_apps -contains $_)) }
+$apps | ForEach-Object { install_app $_ $architecture $global $suggested $use_cache $check_hash ($portable -and ($explicit_names -contains (Get-AppBaseName $_))) }
 
 show_suggestions $suggested
 
